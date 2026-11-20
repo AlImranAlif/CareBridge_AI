@@ -24,7 +24,7 @@ def install_error_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=exc.status_code,
             headers=exc.headers,
-            content={"code": "http_error", "message": "The request could not be completed.", "request_id": request_id},
+            content={"code": "http_error", "message": exc.detail if isinstance(exc.detail, str) else "The request could not be completed.", "request_id": request_id},
         )
 
     @app.exception_handler(RequestValidationError)
