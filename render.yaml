@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: carebridge-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: ./apps/api
+    healthCheckPath: /api/v1/health/live
+    envVars:
+      - key: APP_ENV
+        value: demo
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DATA_DIR
+        value: /tmp/carebridge-data
+      - key: MAX_UPLOAD_BYTES
+        value: "10485760"
+      - key: CORS_ORIGINS
+        sync: false
+
