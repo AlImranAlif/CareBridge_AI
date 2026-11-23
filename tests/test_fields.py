@@ -167,3 +167,24 @@ def test_comma_after_decimal_value():
 def test_dash_between_value_and_range():
     (lab,) = extract_lab_results(pages("Hemoglobin 12.5 - 13.0-17.0 g/dL"))
     assert lab.value == "12.5" and lab.reference_range.startswith("13.0-17.0")
+
+
+def test_bracketed_label_before_colon_belongs_to_next_date():
+    text = "Report date: 2026-02-12 (DOB): 1980-05-01"
+    assert choose_document_date(extract_dates(pages(text))).value == "2026-02-12"
+    text = "Collected: 2026-02-10 (Report date): 2026-02-12"
+    assert choose_document_date(extract_dates(pages(text))).value == "2026-02-12"
+
+
+def test_empty_dob_field_does_not_hide_report_date():
+    assert choose_document_date(extract_dates(pages("Report date: 2026-02-12  DOB: Not recorded"))).value == "2026-02-12"
+
+
+def test_unit_after_comma():
+    (lab,) = extract_lab_results(pages("Glucose 5.6, mmol/L, 3.9-5.5"))
+    assert lab.unit == "mmol/L" and "unit not found" not in lab.uncertain
+
+
+def test_two_ranges_without_result_marked_uncertain():
+    labs = extract_lab_results(pages("Hemoglobin 13.0-17.0 - 12.0-16.0 g/dL"))
+    assert all("reference limit" in lab.uncertain for lab in labs)

@@ -42,8 +42,7 @@ _DATE_LABEL_RE = re.compile(
     re.I,
 )
 _BIRTH_RE = re.compile(r"\b(?:dob|d\.o\.b|date\s*of\s*birth|birth\s*date|born)\b|জন্ম", re.I)
-_LEADING_BRACKET_RE = re.compile(r"^\s*[\(\[][^\)\]]*[\)\]]")
-_BRACKETED_BIRTH_RE = re.compile(r"^\s*[\(\[]\s*(?:dob|d\.o\.b|date of birth|birth ?date|born)\b", re.I)
+_TRAILING_BRACKET_RE = re.compile(r"^\s*[\(\[][^\)\]]*[\)\]](?!\s*[:\-])")
 
 
 # Labels that identify the date a document was issued rank above admission/collection dates.
@@ -116,16 +115,16 @@ def extract_dates(pages: list[PageText]) -> list[DateCandidate]:
         for line in page.text.splitlines():
             found = _dates_in_line(line)
             cursor = 0
+            previous_bracket = None
             for index, (start, parsed, raw, reason) in enumerate(found):
                 # Only the text between the previous date and this one labels this date.
                 prefix = line[cursor:start]
-                if index:
-                    prefix = _LEADING_BRACKET_RE.sub("", prefix, count=1)  # "(DOB)" belongs to the previous date
+                if index and previous_bracket:
+                    prefix = prefix[previous_bracket.end():]  # "1980-05-01 (DOB)": the bracket belongs to the previous date
                 cursor = start + len(raw)
-                # A trailing label belongs to this date only at the end of the line or in brackets.
-                is_last = index == len(found) - 1
-                suffix = line[cursor : len(line) if is_last else found[index + 1][0]]
-                trailing_birth = bool(_BIRTH_RE.search(suffix)) if is_last else bool(_BRACKETED_BIRTH_RE.match(suffix))
+                # A bracket right after a date, not followed by ":" or "-", annotates that date.
+                previous_bracket = _TRAILING_BRACKET_RE.match(line[cursor:])
+                trailing_birth = bool(previous_bracket and _BIRTH_RE.search(previous_bracket.group()))
                 candidates.append(
                     DateCandidate(
                         value=parsed.isoformat(),
@@ -204,7 +203,7 @@ _LAB_LINE_RES = [
 ]
 _FLAG = r"(?:\s*\(?(?:high|low|h|l)\)?(?![\w/]))?"
 _VALUE_RE = re.compile(
-    rf"^[\s:=\-\.\(\)a-z]{{0,30}}?(?P<value>{_NUMBER})(?!\d|[.,]\d)\s*(?P<unit>{_UNIT_RE})?{_FLAG}(?![\w/])", re.I
+    rf"^[\s:=\-\.\(\)a-z]{{0,30}}?(?P<value>{_NUMBER})(?!\d|[.,]\d)\s*(?:,\s*)?(?P<unit>{_UNIT_RE})?{_FLAG}(?![\w/])", re.I
 )
 _RANGE_START_RE = re.compile(r"^\s*(?:-|–|to)\s*\d")
 _RANGE_END_RE = re.compile(r"^\s*(?:-|–|to)\s*\d[\d,]*(?:\.\d+)?")
@@ -262,6 +261,10 @@ def extract_lab_results(pages: list[PageText]) -> list[LabResult]:
                     value = value_match.group("value").replace(" ", "")
                     unit = value_match.group("unit") or ""
                     reference = _range_after(rest[value_match.end():])
+                    after_value = rest[value_match.end("value"):]
+                    end = _RANGE_END_RE.match(after_value)
+                    if end and _RANGE_START_RE.match(after_value[end.end():]):
+                        reasons.append("number is followed by a dash and a range; it may be a reference limit, not a result")
                 else:
                     following = next((ln for ln in lines[index + 1 : index + 3] if ln.strip()), "")
                     next_match = _VALUE_ONLY_LINE_RE.match(following)
