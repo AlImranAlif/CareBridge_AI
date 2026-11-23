@@ -151,3 +151,19 @@ def test_next_numbered_row_is_not_taken_as_value():
 def test_document_title_is_not_a_facility():
     details = extract_details(pages("Laboratory Report\nGreen Valley Clinic\nHemoglobin 13.1 g/dL"))
     assert details.facility.value == "Green Valley Clinic"
+
+
+def test_trailing_birth_label_excludes_date():
+    text = "Demo Patient 1980-05-01 (DOB)\nSample note"
+    assert choose_document_date(extract_dates(pages(text))).value is None
+    assert choose_document_date(extract_dates(pages("1980-05-01 (DOB)   Visit: 2026-02-12"))).value == "2026-02-12"
+
+
+def test_comma_after_decimal_value():
+    (lab,) = extract_lab_results(pages("Glucose 5.6, mmol/L, 3.9-5.5"))
+    assert lab.value == "5.6"
+
+
+def test_dash_between_value_and_range():
+    (lab,) = extract_lab_results(pages("Hemoglobin 12.5 - 13.0-17.0 g/dL"))
+    assert lab.value == "12.5" and lab.reference_range.startswith("13.0-17.0")

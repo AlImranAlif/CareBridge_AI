@@ -42,6 +42,8 @@ _DATE_LABEL_RE = re.compile(
     re.I,
 )
 _BIRTH_RE = re.compile(r"\b(?:dob|d\.o\.b|date\s*of\s*birth|birth\s*date|born)\b|জন্ম", re.I)
+_LEADING_BRACKET_RE = re.compile(r"^\s*[\(\[][^\)\]]*[\)\]]")
+_BRACKETED_BIRTH_RE = re.compile(r"^\s*[\(\[]\s*(?:dob|d\.o\.b|date of birth|birth ?date|born)\b", re.I)
 
 
 # Labels that identify the date a document was issued rank above admission/collection dates.
@@ -112,11 +114,18 @@ def extract_dates(pages: list[PageText]) -> list[DateCandidate]:
     candidates = []
     for page in pages:
         for line in page.text.splitlines():
+            found = _dates_in_line(line)
             cursor = 0
-            for start, parsed, raw, reason in _dates_in_line(line):
+            for index, (start, parsed, raw, reason) in enumerate(found):
                 # Only the text between the previous date and this one labels this date.
                 prefix = line[cursor:start]
+                if index:
+                    prefix = _LEADING_BRACKET_RE.sub("", prefix, count=1)  # "(DOB)" belongs to the previous date
                 cursor = start + len(raw)
+                # A trailing label belongs to this date only at the end of the line or in brackets.
+                is_last = index == len(found) - 1
+                suffix = line[cursor : len(line) if is_last else found[index + 1][0]]
+                trailing_birth = bool(_BIRTH_RE.search(suffix)) if is_last else bool(_BRACKETED_BIRTH_RE.match(suffix))
                 candidates.append(
                     DateCandidate(
                         value=parsed.isoformat(),
@@ -124,7 +133,7 @@ def extract_dates(pages: list[PageText]) -> list[DateCandidate]:
                         page=page.page,
                         source_line=line.strip(),
                         labelled=bool(_DATE_LABEL_RE.search(prefix)),
-                        is_birth_date=bool(_BIRTH_RE.search(prefix)),
+                        is_birth_date=bool(_BIRTH_RE.search(prefix)) or trailing_birth,
                         uncertain=reason,
                         primary_label=bool(_PRIMARY_LABEL_RE.search(prefix)) and not _SECONDARY_LABEL_RE.search(prefix),
                     )
@@ -195,13 +204,23 @@ _LAB_LINE_RES = [
 ]
 _FLAG = r"(?:\s*\(?(?:high|low|h|l)\)?(?![\w/]))?"
 _VALUE_RE = re.compile(
-    rf"^[\s:=\-\.\(\)a-z]{{0,30}}?(?P<value>{_NUMBER})(?![\d.,])\s*(?P<unit>{_UNIT_RE})?{_FLAG}(?![\w/])", re.I
+    rf"^[\s:=\-\.\(\)a-z]{{0,30}}?(?P<value>{_NUMBER})(?!\d|[.,]\d)\s*(?P<unit>{_UNIT_RE})?{_FLAG}(?![\w/])", re.I
 )
 _RANGE_START_RE = re.compile(r"^\s*(?:-|–|to)\s*\d")
+_RANGE_END_RE = re.compile(r"^\s*(?:-|–|to)\s*\d[\d,]*(?:\.\d+)?")
+
+
+def _starts_range_only(after_value: str) -> bool:
+    """True when the number just read is the low end of a range ("13.0-17.0"), not a result.
+
+    "12.5 - 13.0-17.0" is a result followed by a dash and its range, so it returns False.
+    """
+    end = _RANGE_END_RE.match(after_value)
+    return bool(end) and not _RANGE_START_RE.match(after_value[end.end():])
 _RANGE_RE = re.compile(
     rf"(?<![\d.,])(?P<range>(?:\d[\d,]*(?:\.\d+)?\s*(?:-|–|to)\s*\d[\d,]*(?:\.\d+)?|[<>≤≥]\s?\d[\d,]*(?:\.\d+)?)(?:\s*{_UNIT_RE})?)", re.I
 )
-_VALUE_ONLY_LINE_RE = re.compile(rf"^\s*(?P<value>{_NUMBER})(?![\d.,])\s*(?P<unit>{_UNIT_RE})?{_FLAG}(?P<rest>.*)$", re.I)
+_VALUE_ONLY_LINE_RE = re.compile(rf"^\s*(?P<value>{_NUMBER})(?!\d|[.,]\d)\s*(?P<unit>{_UNIT_RE})?{_FLAG}(?P<rest>.*)$", re.I)
 _ROW_NUMBER_RE = re.compile(r"^\s*\d+\s*[.)]\s*[^\d\s]")
 
 
@@ -235,7 +254,7 @@ def extract_lab_results(pages: list[PageText]) -> list[LabResult]:
                     continue
                 rest = m.group("rest")
                 value_match = _VALUE_RE.match(rest)
-                if value_match and _RANGE_START_RE.match(rest[value_match.end("value"):]):
+                if value_match and _starts_range_only(rest[value_match.end("value"):]):
                     break  # the number starts a reference range, not a result
                 reasons: list[str] = []
                 source_line = line.strip()
@@ -249,7 +268,7 @@ def extract_lab_results(pages: list[PageText]) -> list[LabResult]:
                     if (
                         not next_match
                         or _ROW_NUMBER_RE.match(following)
-                        or _RANGE_START_RE.match(following[next_match.end("value"):])
+                        or _starts_range_only(following[next_match.end("value"):])
                         or any(r.match(following) for _, r in _LAB_LINE_RES)
                     ):
                         break

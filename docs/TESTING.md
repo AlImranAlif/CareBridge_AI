@@ -15,7 +15,7 @@ sudo apt-get install tesseract-ocr tesseract-ocr-eng tesseract-ocr-ben fonts-not
 .venv/bin/python -m pytest -q
 ```
 
-70 tests. All test documents are generated in the test itself (PDFs with PyMuPDF, images with
+73 tests. All test documents are generated in the test itself (PDFs with PyMuPDF, images with
 Pillow); no real records are used. OCR tests are skipped automatically if Tesseract (or the
 Bengali language pack) is not installed.
 
