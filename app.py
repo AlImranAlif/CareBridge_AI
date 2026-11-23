@@ -228,6 +228,7 @@ with tab_dash:
         st.info("No records for this profile yet. Upload a document, or load the synthetic demo records.")
         if st.button("Load synthetic demo records"):
             load_demo_records()
+            st.session_state["pending_profile"] = DEMO_PATIENT
             st.rerun()
     else:
         needs_review = [r for r in records if r.needs_type_confirmation or r.warnings]
