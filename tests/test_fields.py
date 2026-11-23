@@ -188,3 +188,11 @@ def test_unit_after_comma():
 def test_two_ranges_without_result_marked_uncertain():
     labs = extract_lab_results(pages("Hemoglobin 13.0-17.0 - 12.0-16.0 g/dL"))
     assert all("reference limit" in lab.uncertain for lab in labs)
+
+
+def test_trailing_birth_label_variants():
+    assert choose_document_date(extract_dates(pages("Demo Patient 1980-05-01 DOB"))).value is None
+    text = "1980-05-01 (DOB) - Report date: 2026-02-12"
+    assert choose_document_date(extract_dates(pages(text))).value == "2026-02-12"
+    text = "Collected: 2026-02-10 (Report date: 2026-02-12)"
+    assert choose_document_date(extract_dates(pages(text))).value == "2026-02-12"

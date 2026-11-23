@@ -42,7 +42,11 @@ _DATE_LABEL_RE = re.compile(
     re.I,
 )
 _BIRTH_RE = re.compile(r"\b(?:dob|d\.o\.b|date\s*of\s*birth|birth\s*date|born)\b|জন্ম", re.I)
-_TRAILING_BRACKET_RE = re.compile(r"^\s*[\(\[][^\)\]]*[\)\]](?!\s*[:\-])")
+_BIRTH_WORDS = r"(?:dob|d\.o\.b|date of birth|birth ?date|born)"
+# A birth label right after a date ("1980-05-01 (DOB)" / "1980-05-01 DOB") unless it introduces a value.
+_TRAILING_BIRTH_RE = re.compile(
+    rf"^\s*(?:[\(\[]\s*{_BIRTH_WORDS}\s*[\)\]](?!\s*:)|{_BIRTH_WORDS}\b(?!\s*[:\-]))", re.I
+)
 
 
 # Labels that identify the date a document was issued rank above admission/collection dates.
@@ -115,16 +119,15 @@ def extract_dates(pages: list[PageText]) -> list[DateCandidate]:
         for line in page.text.splitlines():
             found = _dates_in_line(line)
             cursor = 0
-            previous_bracket = None
+            previous_birth = None
             for index, (start, parsed, raw, reason) in enumerate(found):
                 # Only the text between the previous date and this one labels this date.
                 prefix = line[cursor:start]
-                if index and previous_bracket:
-                    prefix = prefix[previous_bracket.end():]  # "1980-05-01 (DOB)": the bracket belongs to the previous date
+                if index and previous_birth:
+                    prefix = prefix[previous_birth.end():]  # that label belongs to the previous date
                 cursor = start + len(raw)
-                # A bracket right after a date, not followed by ":" or "-", annotates that date.
-                previous_bracket = _TRAILING_BRACKET_RE.match(line[cursor:])
-                trailing_birth = bool(previous_bracket and _BIRTH_RE.search(previous_bracket.group()))
+                previous_birth = _TRAILING_BIRTH_RE.match(line[cursor:])
+                trailing_birth = bool(previous_birth)
                 candidates.append(
                     DateCandidate(
                         value=parsed.isoformat(),
