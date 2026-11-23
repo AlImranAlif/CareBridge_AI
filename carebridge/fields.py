@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass, field
-from datetime import date
+from datetime import date, timedelta
 
 from .extraction import PageText
 
@@ -66,7 +66,7 @@ def _make_date(year: int, month: int, day: int) -> date | None:
         parsed = date(year, month, day)
     except ValueError:
         return None
-    if parsed.year < 1900 or parsed > date.today().replace(year=date.today().year + 1):
+    if parsed.year < 1900 or parsed > date.today() + timedelta(days=366):
         return None
     return parsed
 
@@ -74,8 +74,8 @@ def _make_date(year: int, month: int, day: int) -> date | None:
 _BENGALI_DIGITS = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
 
 
-def _dates_in_line(original: str) -> list[tuple[date, str, str]]:
-    """Return (date, raw text, uncertainty reason) for every date-like token in a line.
+def _dates_in_line(original: str) -> list[tuple[int, date, str, str]]:
+    """Return (start, date, raw text, uncertainty reason) for every date-like token in a line.
 
     Bengali digits are read as their ASCII equivalents; the raw text is returned as written.
     """
@@ -105,15 +105,18 @@ def _dates_in_line(original: str) -> list[tuple[date, str, str]]:
         if d:
             found.append((m.start(), d, m.group(0), ""))
     ordered = sorted(found, key=lambda x: x[0])
-    return [(d, original[start : start + len(raw)], reason) for start, d, raw, reason in ordered]
+    return [(start, d, original[start : start + len(raw)], reason) for start, d, raw, reason in ordered]
 
 
 def extract_dates(pages: list[PageText]) -> list[DateCandidate]:
     candidates = []
     for page in pages:
         for line in page.text.splitlines():
-            for parsed, raw, reason in _dates_in_line(line):
-                prefix = line[: line.find(raw)] if raw in line else line
+            cursor = 0
+            for start, parsed, raw, reason in _dates_in_line(line):
+                # Only the text between the previous date and this one labels this date.
+                prefix = line[cursor:start]
+                cursor = start + len(raw)
                 candidates.append(
                     DateCandidate(
                         value=parsed.isoformat(),
@@ -121,7 +124,7 @@ def extract_dates(pages: list[PageText]) -> list[DateCandidate]:
                         page=page.page,
                         source_line=line.strip(),
                         labelled=bool(_DATE_LABEL_RE.search(prefix)),
-                        is_birth_date=bool(_BIRTH_RE.search(line)),
+                        is_birth_date=bool(_BIRTH_RE.search(prefix)),
                         uncertain=reason,
                         primary_label=bool(_PRIMARY_LABEL_RE.search(prefix)) and not _SECONDARY_LABEL_RE.search(prefix),
                     )
@@ -190,11 +193,16 @@ LAB_TESTS: list[tuple[str, str]] = [
 _LAB_LINE_RES = [
     (name, re.compile(rf"^\s*(?:\d+[\.\)]\s*)?(?P<name>{aliases})\b(?P<rest>.*)$", re.I)) for name, aliases in LAB_TESTS
 ]
-_VALUE_RE = re.compile(rf"^[\s:=\-\.\(\)a-z]{{0,30}}?(?P<value>{_NUMBER})\s*(?P<unit>{_UNIT_RE})?(?![\w/])", re.I)
-_RANGE_RE = re.compile(
-    rf"(?P<range>(?:\d+(?:\.\d+)?\s*(?:-|–|to)\s*\d+(?:\.\d+)?|[<>≤≥]\s?\d+(?:\.\d+)?)(?:\s*{_UNIT_RE})?)", re.I
+_FLAG = r"(?:\s*\(?(?:high|low|h|l)\)?(?![\w/]))?"
+_VALUE_RE = re.compile(
+    rf"^[\s:=\-\.\(\)a-z]{{0,30}}?(?P<value>{_NUMBER})(?![\d.,])\s*(?P<unit>{_UNIT_RE})?{_FLAG}(?![\w/])", re.I
 )
-_VALUE_ONLY_LINE_RE = re.compile(rf"^\s*(?P<value>{_NUMBER})\s*(?P<unit>{_UNIT_RE})?(?P<rest>.*)$", re.I)
+_RANGE_START_RE = re.compile(r"^\s*(?:-|–|to)\s*\d")
+_RANGE_RE = re.compile(
+    rf"(?<![\d.,])(?P<range>(?:\d[\d,]*(?:\.\d+)?\s*(?:-|–|to)\s*\d[\d,]*(?:\.\d+)?|[<>≤≥]\s?\d[\d,]*(?:\.\d+)?)(?:\s*{_UNIT_RE})?)", re.I
+)
+_VALUE_ONLY_LINE_RE = re.compile(rf"^\s*(?P<value>{_NUMBER})(?![\d.,])\s*(?P<unit>{_UNIT_RE})?{_FLAG}(?P<rest>.*)$", re.I)
+_ROW_NUMBER_RE = re.compile(r"^\s*\d+\s*[.)]\s*[^\d\s]")
 
 
 @dataclass
@@ -227,6 +235,8 @@ def extract_lab_results(pages: list[PageText]) -> list[LabResult]:
                     continue
                 rest = m.group("rest")
                 value_match = _VALUE_RE.match(rest)
+                if value_match and _RANGE_START_RE.match(rest[value_match.end("value"):]):
+                    break  # the number starts a reference range, not a result
                 reasons: list[str] = []
                 source_line = line.strip()
                 if value_match:
@@ -236,7 +246,12 @@ def extract_lab_results(pages: list[PageText]) -> list[LabResult]:
                 else:
                     following = next((ln for ln in lines[index + 1 : index + 3] if ln.strip()), "")
                     next_match = _VALUE_ONLY_LINE_RE.match(following)
-                    if not next_match:
+                    if (
+                        not next_match
+                        or _ROW_NUMBER_RE.match(following)
+                        or _RANGE_START_RE.match(following[next_match.end("value"):])
+                        or any(r.match(following) for _, r in _LAB_LINE_RES)
+                    ):
                         break
                     value = next_match.group("value").replace(" ", "")
                     unit = next_match.group("unit") or ""

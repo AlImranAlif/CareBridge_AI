@@ -101,3 +101,48 @@ def test_discharge_date_preferred_over_admission_date():
 def test_report_date_preferred_over_collection_date():
     text = "Collected on: 2026-01-02\nReported on: 2026-01-04"
     assert choose_document_date(extract_dates(pages(text))).value == "2026-01-04"
+
+
+def test_leap_day_today_does_not_crash(monkeypatch):
+    import datetime as real_datetime
+
+    from carebridge import fields
+
+    class LeapDate(real_datetime.date):
+        @classmethod
+        def today(cls):
+            return cls(2028, 2, 29)
+
+    monkeypatch.setattr(fields, "date", LeapDate)
+    assert choose_document_date(extract_dates(pages("Report date: 2028-02-20"))).value == "2028-02-20"
+
+
+def test_birth_date_label_does_not_hide_report_date_on_same_line():
+    text = "Report date: 2026-02-12    DOB: 1980-05-01"
+    assert choose_document_date(extract_dates(pages(text))).value == "2026-02-12"
+
+
+def test_collection_label_does_not_leak_to_report_date_on_same_line():
+    text = "Collected: 2026-02-10   Reported: 2026-02-12"
+    assert choose_document_date(extract_dates(pages(text))).value == "2026-02-12"
+
+
+def test_lab_value_with_attached_flag_keeps_decimal():
+    (lab,) = extract_lab_results(pages("Glucose 5.6H mmol/L 3.9-5.5"))
+    assert lab.value == "5.6"
+
+
+def test_comma_reference_range_kept_whole():
+    (lab,) = extract_lab_results(pages("WBC 12,500 /cumm 4,000-11,000"))
+    assert lab.value == "12,500"
+    assert lab.reference_range.startswith("4,000-11,000")
+
+
+def test_reference_range_only_row_is_not_a_result():
+    assert extract_lab_results(pages("Hemoglobin 13.0-17.0 g/dL")) == []
+
+
+def test_next_numbered_row_is_not_taken_as_value():
+    text = "1. Hemoglobin\n2. Glucose 5.4 mmol/L"
+    labs = extract_lab_results(pages(text))
+    assert [(lab.field, lab.value) for lab in labs] == [("Glucose", "5.4")]
