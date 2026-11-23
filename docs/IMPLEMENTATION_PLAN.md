@@ -17,7 +17,7 @@ See [AUDIT.md](AUDIT.md).
 | Extraction | More date formats incl. Bengali digits; birth dates ignored; discharge/report dates preferred over admission/collection dates; lab ranges; medicines as written; doctor, facility, patient; page + source line for every value; conflicts flagged, never overwritten. |
 | Storage | Additive, versioned migration with automatic backup; transactional save; file removed if DB insert fails; delete record / delete profile. |
 | UI | Dashboard, upload progress and per-file results, timeline search/filter/needs-review, page-level source view, original download, structured summary with references, Data & privacy tab. |
-| Tests | 61 unit tests + synthetic evaluation script. |
+| Tests | 70 unit tests + synthetic evaluation script. |
 
 ## Phase 2 — Review workflow (next)
 * Let users edit/confirm individual extracted values (store original + corrected value and who/when).

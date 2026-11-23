@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from .classification import UNKNOWN
+from .classification import TYPE_CONFIRMATION_WARNING, UNKNOWN
 from .storage import LEGACY_MISSING_DATE
 
 
@@ -90,7 +90,10 @@ def to_record(row) -> DocumentRecord:
         lab_results=labs,
         pages=_load_json(get("pages_json"), []),
         details=_load_json(get("details_json"), {}),
-        warnings=_load_json(get("warnings_json"), []),
+        warnings=[
+            w for w in _load_json(get("warnings_json"), [])
+            if not (get("type_confirmed") and w == TYPE_CONFIRMATION_WARNING)
+        ],
         media_type=get("media_type", ""),
         storage_name=get("storage_name"),
     )

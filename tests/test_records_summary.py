@@ -54,3 +54,13 @@ def test_summary_support_every_value_appears_in_its_source(tmp_path):
 
 def test_empty_summary(tmp_path):
     assert "No documents are stored" in build_summary([], "P")
+
+
+def test_confirming_type_clears_type_warning(tmp_path):
+    store = DocumentStore(tmp_path)
+    data = DOCS["undated_note.txt"]
+    record = process_document("undated_note.txt", data, "P").to_record("P")
+    store.save_document(record, data)
+    assert any("Please confirm" in w for w in to_record(store.get_document(record["id"])).warnings)
+    store.update_document_type(record["id"], "Other medical document")
+    assert not any("Please confirm" in w for w in to_record(store.get_document(record["id"])).warnings)

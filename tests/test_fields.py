@@ -146,3 +146,8 @@ def test_next_numbered_row_is_not_taken_as_value():
     text = "1. Hemoglobin\n2. Glucose 5.4 mmol/L"
     labs = extract_lab_results(pages(text))
     assert [(lab.field, lab.value) for lab in labs] == [("Glucose", "5.4")]
+
+
+def test_document_title_is_not_a_facility():
+    details = extract_details(pages("Laboratory Report\nGreen Valley Clinic\nHemoglobin 13.1 g/dL"))
+    assert details.facility.value == "Green Valley Clinic"

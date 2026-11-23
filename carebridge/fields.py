@@ -356,7 +356,11 @@ _FACILITY_RE = re.compile(
     re.I,
 )
 _PATIENT_RE = re.compile(r"^\s*(?:patient(?:'s)?(?:\s*name)?|name of patient|রোগীর নাম)\s*[:\-]\s*(?P<name>.+)$", re.I)
-_SKIP_FACILITY_RE = re.compile(r"\b(?:report|test|date|patient|ref)\b\s*[:\-]", re.I)
+_SKIP_FACILITY_RE = re.compile(
+    r"\b(?:report|test|date|patient|ref)\b\s*[:\-]"
+    r"|^\W*(?:(?:clinical|pathology|medical)\s+)?(?:laboratory|lab|diagnostic)s?\s+(?:test\s+)?(?:reports?|results?|investigations?)\W*$",
+    re.I,
+)
 
 
 @dataclass

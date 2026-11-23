@@ -14,7 +14,7 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 
-from .classification import ClassificationResult, classify
+from .classification import TYPE_CONFIRMATION_WARNING, ClassificationResult, classify
 from .extraction import ExtractionError, ExtractionResult, PageText, extract_text
 from .fields import ExtractedDetails, extract_details
 from .text_cleaning import clean_text
@@ -110,5 +110,5 @@ def process_document(filename: str, data: bytes, patient_name: str | None = None
     details = extract_details(pages)
     warnings = list(extraction.warnings) + validate_details(details, patient_name)
     if classification.needs_confirmation:
-        warnings.append("The document type could not be identified confidently. Please confirm it.")
+        warnings.append(TYPE_CONFIRMATION_WARNING)
     return ProcessedDocument(validated, extraction, pages, classification, details, warnings)

@@ -18,6 +18,7 @@ CONSULTATION = "Doctor consultation"
 DIAGNOSTIC_REPORT = "Diagnostic report"
 OTHER = "Other medical document"
 UNKNOWN = "Unknown"
+TYPE_CONFIRMATION_WARNING = "The document type could not be identified confidently. Please confirm it."
 
 DOCUMENT_TYPES = [LAB_REPORT, PRESCRIPTION, DISCHARGE_SUMMARY, IMAGING_REPORT, CONSULTATION, DIAGNOSTIC_REPORT, OTHER, UNKNOWN]
 
