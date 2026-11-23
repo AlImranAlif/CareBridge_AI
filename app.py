@@ -7,6 +7,7 @@ renders the interface and calls into it.
 from __future__ import annotations
 
 import logging
+import re
 import os
 from collections import Counter
 from pathlib import Path
@@ -70,24 +71,24 @@ def save_upload(name: str, data: bytes, patient: str) -> tuple[str, str, str | N
     try:
         validated = validate_upload(name, data)
     except ValidationError as exc:
-        return "error", f"{name}: {exc}", None
+        return "error", f"{md(name)}: {md(exc)}", None
     duplicate = store.find_duplicate(validated.sha256, patient)
     if duplicate:
-        return "warning", f"{validated.safe_name}: already stored for {patient} as \"{duplicate['filename']}\". Skipped.", None
+        return "warning", f"{md(validated.safe_name)}: already stored for {md(patient)} as \"{md(duplicate['filename'])}\". Skipped.", None
     try:
         processed = process_document(name, data, patient)
         record = processed.to_record(patient)
         store.save_document(record, data)
     except (ValidationError, ExtractionError, StorageError) as exc:
-        return "error", f"{validated.safe_name}: {exc}", None
+        return "error", f"{md(validated.safe_name)}: {md(exc)}", None
     level = "warning" if processed.warnings else "success"
     message = (
-        f"{validated.safe_name}: saved as **{record['doc_type']}** (confidence: {record['classification_confidence']}); "
+        f"{md(validated.safe_name)}: saved as **{record['doc_type']}** (confidence: {record['classification_confidence']}); "
         f"extraction: {record['extraction_method']}; {len(processed.details.lab_results)} lab value(s), "
         f"{len(processed.details.medications)} medicine line(s)."
     )
     if processed.warnings:
-        message += "\n\n" + "\n".join(f"- {w}" for w in processed.warnings)
+        message += "\n\n" + "\n".join(f"- {md(w)}" for w in processed.warnings)
     return level, message, record["id"]
 
 
@@ -96,11 +97,31 @@ def load_demo_records() -> None:
         save_upload(filename, text.encode("utf-8"), DEMO_PATIENT)
 
 
+_TYPE_SELECTOR_PREFIXES = ("up", "tl")
+
+
+def md(text: object) -> str:
+    """Escape Markdown so document-derived text is shown literally (no links or remote images)."""
+    return re.sub(r"([\\`*_{}\[\]()<>#+\-.!|~])", r"\\\1", str(text))
+
+
+def _save_type_choice(doc_id: str, widget_key: str) -> None:
+    store.update_document_type(doc_id, st.session_state[widget_key])
+    for prefix in _TYPE_SELECTOR_PREFIXES:
+        other = f"{prefix}_type_{doc_id}"
+        if other != widget_key:
+            st.session_state.pop(other, None)
+
+
 def type_selector(record: DocumentRecord, key_prefix: str) -> None:
     options = DOCUMENT_TYPES if record.doc_type in DOCUMENT_TYPES else [record.doc_type, *DOCUMENT_TYPES]
     label = "Confirm document type" if record.needs_type_confirmation else "Document type"
-    choice = st.selectbox(label, options, index=options.index(record.doc_type), key=f"{key_prefix}_type_{record.id}")
-    if choice != record.doc_type or (record.needs_type_confirmation and st.button("Confirm type", key=f"{key_prefix}_confirm_{record.id}")):
+    key = f"{key_prefix}_type_{record.id}"
+    choice = st.selectbox(
+        label, options, index=options.index(record.doc_type), key=key,
+        on_change=_save_type_choice, args=(record.id, key),
+    )
+    if record.needs_type_confirmation and st.button("Confirm type", key=f"{key_prefix}_confirm_{record.id}"):
         store.update_document_type(record.id, choice)
         st.rerun()
 
@@ -123,9 +144,9 @@ def render_record_details(record: DocumentRecord) -> None:
         for key, label in (("doctor", "Doctor named"), ("facility", "Facility named"), ("patient_name_in_document", "Patient name in document")):
             item = record.details.get(key)
             if item:
-                st.markdown(f"**{label}:** {item['value']} (page {item['page']})")
+                st.markdown(f"**{label}:** {md(item['value'])} (page {item['page']})")
     for warning in record.warnings:
-        st.warning(warning)
+        st.warning(md(warning))
 
     st.markdown("**Laboratory values (candidates - check against the source)**")
     if record.lab_results:
@@ -176,7 +197,11 @@ with st.sidebar:
     st.header("Patient profile")
     patients = store.list_patients()
     new_label = "+ New profile"
-    choice = st.selectbox("Profile", [*patients, new_label] if patients else [new_label])
+    if "pending_profile" in st.session_state:
+        st.session_state["profile"] = st.session_state.pop("pending_profile")
+    if st.session_state.get("profile") not in [*patients, new_label]:
+        st.session_state.pop("profile", None)
+    choice = st.selectbox("Profile", [*patients, new_label] if patients else [new_label], key="profile")
     if choice == new_label:
         patient = st.text_input("Display name for new profile", value=DEMO_PATIENT if not patients else "").strip()
     else:
@@ -219,7 +244,7 @@ with tab_dash:
             st.markdown("**Recent uploads**")
             for r in records[:5]:
                 flag = " · ⚠️ needs review" if r in needs_review else ""
-                st.markdown(f"- {r.created_at[:16].replace('T', ' ')} · {r.doc_type} · {r.filename}{flag}")
+                st.markdown(f"- {r.created_at[:16].replace('T', ' ')} · {md(r.doc_type)} · {md(r.filename)}{flag}")
             undated = sum(1 for r in records if not r.doc_date)
             if undated:
                 st.caption(f"{undated} document(s) have no identified date and appear at the end of the timeline.")
@@ -258,6 +283,8 @@ with tab_upload:
             results.append((level, message, doc_id))
             progress.progress(index / len(uploads))
         st.session_state["last_results"] = results
+        if any(doc_id for _, _, doc_id in results):
+            st.session_state["pending_profile"] = patient
         st.rerun()
     for level, message, doc_id in st.session_state.get("last_results", []):
         getattr(st, level)(message)
@@ -288,7 +315,7 @@ with tab_timeline:
                 flags.append("type unconfirmed")
             if r.date_status != "found":
                 flags.append("date " + ("uncertain" if r.doc_date else "unknown"))
-            title = f"{r.display_date} · {r.doc_type} · {r.filename}" + (f"  ⚠️ {', '.join(flags)}" if flags else "")
+            title = f"{r.display_date} · {md(r.doc_type)} · {md(r.filename)}" + (f"  ⚠️ {', '.join(flags)}" if flags else "")
             with st.expander(title):
                 render_record_details(r)
 
@@ -323,7 +350,7 @@ with tab_data:
         st.info(f"The database was upgraded to a new schema. A backup of the previous version was saved as `{store.last_backup.name}`.")
     st.subheader("Delete data")
     if records:
-        st.markdown(f"Delete all **{len(records)}** document(s) and files for profile **{patient}**.")
+        st.markdown(f"Delete all **{len(records)}** document(s) and files for profile **{md(patient)}**.")
         typed = st.text_input("Type the profile name to confirm")
         if st.button("Delete all records for this profile", type="secondary", disabled=typed != patient):
             try:
